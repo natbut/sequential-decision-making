@@ -14,7 +14,7 @@ if __name__ == "__main__":
         for y in range(m.rows):
             state = (x,y)
             assert m.state_from_index(m.index_from_state(state))==state, "Mapping incorrect for state: {state}".format(state=state)
-    # m.plot_path(path, 'Maze2D')
+    m.plot_path(path, 'Maze2D')
 
     m2 = Maze4D.from_pgm('maze2.pgm')
     for x in range(m2.cols):

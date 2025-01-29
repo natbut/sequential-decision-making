@@ -68,7 +68,7 @@ class Maze(abc.ABC):
         colors = ['b', 'r']
         plt.imshow(self.maze_array.T, cmap=plt.get_cmap('bone'))
         if title_name is not None:
-            fig.suptitle(title_name, fontSize=20)
+            fig.suptitle(title_name, fontsize=20)
 
         # cast path to numpy array so indexing is nicer
         path = np.array(path)
