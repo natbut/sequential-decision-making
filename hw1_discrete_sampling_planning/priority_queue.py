@@ -84,6 +84,7 @@ class PriorityQueue():
         Args:
             item: item to check
         """
+        # print("!! Is", item, "in ", self.entry_finder, ":", item in self.entry_finder)
         if item in self.entry_finder:
             return self.entry_finder[item] is not self.REMOVED
         else:
