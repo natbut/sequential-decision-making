@@ -137,7 +137,7 @@ class Maze(abc.ABC):
             state = (x,y)
         """
         return self.maze_array[int(state[0]), int(state[1])]==0
-
+    
 
 class Maze2D(Maze):
     """ Maze2D Class """

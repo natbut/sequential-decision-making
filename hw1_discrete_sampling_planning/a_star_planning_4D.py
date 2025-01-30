@@ -1,7 +1,7 @@
 import time
 
 import numpy as np
-from maze import Maze, Maze2D, Maze4D
+from maze import Maze, Maze4D
 from priority_queue import PriorityQueue
 
 
@@ -18,20 +18,25 @@ class Node():
         self.state = state
         self.parent = parent
         self.epsilon=epsilon
-        self.cost_to_come = 0
-        self.cost_to_go = 0
-        self.cost = 0
+        self.cost_to_come = 0 # previous steps
+        self.cost_to_go = 0 # heuristic
+        self.cost = 0 # f = g + h
         
-    def compute_cost(self, goal_state):
+    def compute_cost(self, goal_state, max_vel=2):
+        """
+        Minimize time
+        """
         if self.parent == None:
             return
-        self.cost_to_come = self.parent.cost_to_come + np.linalg.norm(np.asarray(self.state)-np.asarray(self.parent.state))
+        self.cost_to_come = self.parent.cost_to_come + 1
         
-        self.cost_to_go = self._euclidean_heuristic(goal_state)
+        self.cost_to_go = self._time_heuristic(goal_state, m.max_vel)
         self.cost = self.cost_to_come + self.cost_to_go
 
-    def _euclidean_heuristic(self, goal_state):
-        return self.epsilon*np.linalg.norm(goal_state-np.asarray(self.state))
+    def _time_heuristic(self, goal_state, max_vel):
+        """Minimum time to goal from current location; assumes max vel
+        for entire straight line path."""
+        return self.epsilon*np.linalg.norm(goal_state-np.asarray(self.state))/max_vel
     
     def get_path(self):
         path = [self.state]
@@ -70,9 +75,9 @@ def a_star_experiments(m: Maze,
         if epsilon == 1.0: last_cycle = True
         
         # === A* SEARCH LOOP ===
-        node_ct, path_len, path = solve_a_star(m, max_expansion, epsilon)
-        if path_len:
-            completion_log.append([epsilon, node_ct, path_len])
+        node_ct, path_time, path = solve_a_star(m, max_expansion, epsilon)
+        if path_time:
+            completion_log.append([epsilon, node_ct, path_time])
         
         # === EPSILON DECAY AND OTHER BOOKEEPING ===
         epsilon -= 0.5*(epsilon-1)
@@ -81,7 +86,7 @@ def a_star_experiments(m: Maze,
         
     return completion_log
 
-def solve_a_star(m: Maze,
+def solve_a_star(m: Maze4D,
                  max_expansion=10000,
                  epsilon=10,
                  ):
@@ -92,7 +97,6 @@ def solve_a_star(m: Maze,
     pq_open = PriorityQueue()
     pq_closed = PriorityQueue()
     
-    start = np.asarray(m.state_from_index(m.get_start()))
     goal = np.asarray(m.state_from_index(m.get_goal()))
     
     # Compute start node heuristic value
@@ -101,7 +105,7 @@ def solve_a_star(m: Maze,
                 parent=None,
                 epsilon=epsilon
                 )
-    node.compute_cost(goal)
+    node.compute_cost(goal, m.max_vel)
     
     # Load start node in open list
     pq_open.insert(node, node.cost)
@@ -118,8 +122,8 @@ def solve_a_star(m: Maze,
         # If node is goal, create path from parents & return
         if node.id == m.get_goal():
             # path_done = True
-            path_length = node.cost_to_come
-            return count, path_length, node.get_path()
+            path_time = node.cost_to_come
+            return count, path_time, node.get_path()
         
         # Explore node neighbors (that are not in closed list)
         for id in m.get_neighbors(node.id):
@@ -135,8 +139,8 @@ def solve_a_star(m: Maze,
                 continue
             else:
                 count += 1
-                # Compute neighbor heuristic values
-                neighbor.compute_cost(goal)
+                # Compute neighbor cost + heuristic values
+                neighbor.compute_cost(goal, m.max_vel)
                 # Add neighbor to open list
                 pq_open.insert(neighbor, neighbor.cost)
         
@@ -148,14 +152,14 @@ def solve_a_star(m: Maze,
 if __name__ == "__main__":
     max_expansion = 10000
     epsilon=10
-    timeout=1.0
+    timeout=0.05
     maze_id = 2
 
-    m = Maze2D.from_pgm(f'maze{maze_id}.pgm')
+    m = Maze4D.from_pgm(f'maze{maze_id}.pgm')
     
     data = a_star_experiments(m, max_expansion, timeout, epsilon)
 
     print(data)
     
     _,_,path = solve_a_star(m, max_expansion, 1)
-    m.plot_path(path, f'Maze{maze_id} 2D Euclidean')
+    m.plot_path(path, f'Maze{maze_id} 4D')
