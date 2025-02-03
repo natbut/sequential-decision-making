@@ -1,5 +1,4 @@
 import time
-
 import numpy as np
 from maze import Maze, Maze4D
 from priority_queue import PriorityQueue
