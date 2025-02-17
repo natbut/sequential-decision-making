@@ -16,7 +16,8 @@ class OneStepNavigator:
         """
         self.estimator_net = estimator_net
         self.classifier_net = classifier_net
-        self.prev_loc = None
+
+        self.stored_locs = []
 
     def getAction(self,
                   robot: Robot,
@@ -29,40 +30,34 @@ class OneStepNavigator:
         @ return: A string representing one of four cardinal directions
         that the robot should move
         """
+        # Initialize explored environment
         explored_mask = np.zeros((28, 28))
         explored_mask = np.where(map == 128, 0, 1)
-
         est_map = self.estimator_net.runNetwork(map, explored_mask)
-        # print(f"Estimated digit: {est_map}")
-        # print(f"Classification: {self.classifier_net.runNetwork(est_map)}")
+
         robot_loc = robot.getLoc()
+        self.stored_locs.append(robot_loc)
 
         # Get the possible moves
-        possible_moves = [robot_loc + np.array([-1, 0]),
-                            robot_loc + np.array([1, 0]),
-                            robot_loc + np.array([0, 1]),
-                            robot_loc + np.array([0, -1])]
-        
-        if self.prev_loc:
-            print(f"Possible moves {possible_moves}, prev loc {self.prev_loc}")
-            print(np.all(possible_moves == self.prev_loc, axis=0))
-            prev_idx = np.where(np.all(possible_moves == self.prev_loc, axis=0))[0][0]
+        possible_moves = {"left": tuple(robot_loc + np.array([-1, 0])),
+                            "right": tuple(robot_loc + np.array([1, 0])),
+                            "up": tuple(robot_loc + np.array([0, -1])),
+                            "down": tuple(robot_loc + np.array([0, 1])),
+                            }
 
         # Get the value of the estimated map at the possible moves
-        move_values = [est_map[move[1], move[0]] for move in possible_moves]
-        if self.prev_loc:
-            move_values[prev_idx] = -np.inf
+        move_values = []
+        for direction in possible_moves:
+            if not robot.checkValidMove(direction) or possible_moves[direction] in self.stored_locs:
+                move_values.append(-np.inf)
+            else:
+                move_values.append(est_map[possible_moves[direction][1], 
+                                           possible_moves[direction][0]])
 
-        # print(f"Map row 0: {est_map[0]}")
-        # print(f"Map row 1: {est_map[1]}")
-        print(f"Previous location: {self.prev_loc}")
-        # Show the estimated map with robot
-        # est_map[robot_loc[0], robot_loc[1]] = 255
-        # Image.fromarray(est_map).show()
-        self.prev_loc = np.array(robot_loc)
+        # move_values = [est_map[move[1], move[0]] for move in possible_moves.values()]
 
         direction = None
-        while direction is None:
+        while direction is None and np.max(move_values) != -np.inf:
 
             # Select min value (max entropy) cell to move to
             move_idx = np.argmax(move_values)
@@ -73,14 +68,19 @@ class OneStepNavigator:
             if move_idx == 1:
                 direction = 'right'
             if move_idx == 2:
-                direction = 'down'
-            if move_idx == 3:
                 direction = 'up'
+            if move_idx == 3:
+                direction = 'down'
             
-            # If it is not a valid move, try next-best
-            if not robot.checkValidMove(direction):
+            # If it is not a valid move or is already explored, try next-best
+            move_loc = tuple(possible_moves[direction])
+            # print(f"Checking loc {move_loc} for move {direction}")
+            if not robot.checkValidMove(direction) or move_loc in self.stored_locs:
                 direction = None
                 move_values[move_idx] = -np.inf
         
-        print("Moving: ", direction)
+        if direction is None:
+            # If no valid moves, randomly select a move
+            direction = list(possible_moves.keys())[randint(0, 3)]
+
         return direction

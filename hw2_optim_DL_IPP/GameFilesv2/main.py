@@ -38,7 +38,7 @@ if __name__ == "__main__":
 
 
     # This loop runs the game for 1000 ticks, stopping if a goal is found.
-    for x in range(0, 100):
+    for x in range(0, 200):
         found_goal = game.tick()
         print(f"{game.getIteration()}: Robot at: {robot.getLoc()}, Score = {game.getScore()}")
         if found_goal:
