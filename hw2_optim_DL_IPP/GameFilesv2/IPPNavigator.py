@@ -3,12 +3,27 @@ import numpy as np
 from random import randint
 from RobotClass import Robot
 from networkFolder.functionList import Map, WorldEstimatingNetwork, DigitClassificationNetwork
-from PIL import Image
+import random
+
+class Node:
+    def __init__(self, position, parent=None):
+        self.position = position
+        self.parent = parent
+        self.info_gain = 0.0  # Information
+        self.path_length = 0  # Path length from the start
+
+    def update_stats(self, info_gain, new_length):
+        self.info_gain = info_gain
+        self.path_length = new_length
+
+
 
 class IPPNavigator:
     def __init__(self,
                   estimator_net: WorldEstimatingNetwork,
                   classifier_net: DigitClassificationNetwork,
+                  map_x=28,
+                  map_y=28,
                   ) -> None:
         """
         Initializes the IPPNavigator class. This class implements an informative path planner that
@@ -19,6 +34,8 @@ class IPPNavigator:
         """
         self.estimator_net = estimator_net
         self.classifier_net = classifier_net
+        self.map_x = map_x
+        self.map_y = map_y
 
         self.goal_locs = {"012": (0,27),
                           "345": (27,27),
@@ -35,6 +52,9 @@ class IPPNavigator:
     def getAction(self,
                   robot: Robot,
                   map: Map,
+                  RIG_iter=500,
+                  max_RIG_path=10,
+                  epsilon=1.0,
                   digit_id_thresh=0.05,
                   ) -> str:
         """ 
@@ -62,7 +82,6 @@ class IPPNavigator:
 
         # Get the possible moves
         robot_loc = robot.getLoc()
-        self.stored_locs.append(robot_loc)
         possible_moves = {"left": tuple(robot_loc + np.array([-1, 0])),
                             "right": tuple(robot_loc + np.array([1, 0])),
                             "up": tuple(robot_loc + np.array([0, -1])),
@@ -71,58 +90,181 @@ class IPPNavigator:
 
         # Check to break out of getting stuck at wrong goal
         if robot_loc == self.goal_selected:
+            self.stored_locs.append(robot_loc)
             self.goal_selected = None
 
         if self.goal_selected is not None:
-            return self.get_goal_action(robot, possible_moves, est_map)
+            return self.get_goal_action(robot, possible_moves)
         else:
-            return self.get_exploratory_action(robot, possible_moves, est_map)
+            self.stored_locs.append(robot_loc)
+            return self.get_exploratory_action(robot, possible_moves, est_map, RIG_iter, max_RIG_path, epsilon)
         
+    def euclidean_distance(self, p1, p2):
+        """Compute Euclidean distance"""
+        return np.linalg.norm(np.array(p2)-np.array(p1))
 
+    def get_info_value(self, p, est_map):
+        """Get the information value at a given point"""
+        return est_map[p[1], p[0]]
 
-    def get_exploratory_action(self, robot: Robot, possible_moves: dict, est_map: Map):
+    def get_neighbors(self, p, robot: Robot):
         """
-        Get action that explores environment
+        Get the neighbors of a point (connected map cells)
         """
-        # Get the value of the estimated map at the possible moves
-        move_values = []
-        for direction in possible_moves:
-            if not robot.checkValidMove(direction) or possible_moves[direction] in self.stored_locs:
-                move_values.append(-np.inf)
-            else:
-                move_values.append(est_map[possible_moves[direction][1], 
-                                           possible_moves[direction][0]])
+        neighbors = []
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            new_point = (p[0] + dx, p[1] + dy)
+            if robot.checkValidMove(new_point):
+                neighbors.append(new_point)
+        return neighbors
 
-        direction = None
-        while direction is None and np.max(move_values) != -np.inf:
+    def extend_tree(self, tree: list[Node], est_map: Map, random_point, visited_points, epsilon, max_path_length):
+        """
+        Extend the tree towards a random point
+        """
+        # Find nearest node & dist in search tree to sampled point
+        nearest_node = min(tree, key=lambda node: self.euclidean_distance(node.position, random_point))
+        direction = (random_point[0] - nearest_node.position[0], random_point[1] - nearest_node.position[1])
+        move_zero = np.argmin(abs(np.array(direction))) # direction to step in
+        dist = self.euclidean_distance(nearest_node.position, random_point)
 
-            # Select min value (max entropy) cell to move to
-            move_idx = np.argmax(move_values)
-            # print(f"\n Possible moves: {possible_moves} \n Move values: {move_values}\n Selected idx: {move_idx}")
+        if dist == 0:
+            return None
+        
+        step = min(epsilon, dist)
 
-            if move_idx == 0:
-                direction = 'left'
-            if move_idx == 1:
-                direction = 'right'
-            if move_idx == 2:
-                direction = 'up'
-            if move_idx == 3:
-                direction = 'down'
+        # Step size is constrained by epsilon & 4-way movements
+        new_position = [int(np.rint(nearest_node.position[0] + direction[0] * step / dist)),
+                        int(np.rint(nearest_node.position[1] + direction[1] * step / dist))]
+        new_position[move_zero] = nearest_node.position[move_zero] # constrain to 4-way move
+        new_position = tuple(new_position)
+        if new_position in visited_points:
+            return None
+
+        # Create a new node at the new position
+        new_node = Node(position=new_position, parent=nearest_node)
+        new_node.update_stats(nearest_node.info_gain + self.get_info_value(new_position, est_map), nearest_node.path_length + step)
+        
+        # Only add the new node if the path length is within the budget constraint
+        if new_node.path_length <= max_path_length:
+            tree.append(new_node)
+            return new_node
+        return None
+
+    def rewire_tree(self, tree: list[Node], est_map: Map, new_node):
+        """
+        Rewire the tree to optimize path length and information gain
+        """
+        for node in tree:
+            # Skip if the node is the new node or its parent
+            if node == new_node.parent or node == new_node:
+                continue
+            # Calculate potential rewiring info gain and length
+            dist = self.euclidean_distance(node.position, new_node.position)
+            potential_info_gain = new_node.info_gain + self.get_info_value(node.position, est_map)
+            potential_length = new_node.path_length + dist
             
-            # If it is not a valid move or is already explored, try next-best
-            move_loc = tuple(possible_moves[direction])
-            # print(f"Checking loc {move_loc} for move {direction}")
-            if not robot.checkValidMove(direction) or move_loc in self.stored_locs:
-                direction = None
-                move_values[move_idx] = -np.inf
-        
-        if direction is None:
-            # If no valid moves, randomly select a move
-            direction = list(possible_moves.keys())[randint(0, 3)]
+            # If the rewired path is better (more info and within length constraint), rewire
+            if potential_info_gain > node.info_gain and potential_length <= node.path_length:
+                
+                node.update_stats(potential_info_gain, potential_length)
+                node.parent = new_node
+                return True
+        return False
 
+    def RIG_search(self,
+                   est_map: Map,
+                   visited_locs,
+                   robot: Robot,
+                   max_iter=1000,
+                   max_path_length=7,
+                   epsilon=1.0,
+                   ):
+        """
+        Use RIG to find path that maximizes information gained along trajectory
+        subject to a path cost budget (path length for us here)
+
+        P* = argmax I(P) s.t. c(P) <= B
+        """
+        # initialize search tree
+        start = robot.getLoc()
+        # print("Starting loc", start)
+        tree = [Node(position=start)]
+        
+        sampled_points = [start] + visited_locs # closed list
+        for _ in range(max_iter):
+            # Sample a random point
+            random_point = np.random.randint(0, self.map_x-1), np.random.randint(0, self.map_y-1)
+            if random_point in sampled_points:
+                continue
+            else:
+                sampled_points.append(random_point)
+
+            # Extend the tree towards the random point
+            new_node = self.extend_tree(tree, est_map, random_point, sampled_points, epsilon, max_path_length)
+            
+            if new_node:
+                # Rewire the tree
+                self.rewire_tree(tree, est_map, new_node)
+                sampled_points.append(new_node.position)
+
+        return self.process_RIG_tree(tree)
+
+    def process_RIG_tree(self, tree: list[Node]):
+        """
+        Process tree to get values for left, right, up, down actions
+        """
+
+        most_informed_node = max(tree, key=lambda node: node.info_gain)
+
+        path = []
+        node = most_informed_node
+        while node is not None:
+            path.append(node)
+            node = node.parent 
+        path.reverse()
+
+        # If no path is found, return none
+        if len(path) > 1:
+            best_direction = path[1].position
+        else:
+            best_direction = None
+
+        return best_direction
+
+    def get_exploratory_action(self,
+                               robot: Robot,
+                               possible_moves: dict,
+                               est_map: Map,
+                               RIG_iter,
+                               max_RIG_path,
+                               epsilon,
+                               ):
+        """
+        Get action that explores environment.
+
+        Use RIG to build high-value exploration path.
+        """
+        # Do path planning to estimate value of possible moves
+        next_pos = self.RIG_search(est_map, self.stored_locs, robot, RIG_iter, max_RIG_path, epsilon)
+
+        # Move according to path if move valid
+        direction = None
+        if next_pos and next_pos not in self.goal_locs.values():
+            for move in possible_moves:
+                if next_pos == possible_moves[move]:
+                    direction = move
+
+        else:
+            # Take random action if no path found or goal move selected
+            rand_move = random.choice(list(possible_moves.keys()))
+            while possible_moves[rand_move] in self.goal_locs.values():
+                rand_move = random.choice(list(possible_moves.keys()))
+            return rand_move
+        
         return direction
 
-    def get_goal_action(self, robot: Robot, possible_moves: dict, est_map):
+    def get_goal_action(self, robot: Robot, possible_moves: dict):
         """
         If goal has been determined, then take steps toward goal
         """
@@ -141,5 +283,4 @@ class IPPNavigator:
             move_dists[direction] = np.linalg.norm(np.array(self.goal_selected) - \
                                                    np.array(possible_moves[direction]))
 
-        # print(f"Robot loc: {robot.getLoc()}, goal: {self.goal_selected}, move dists: {move_dists}")
         return min(move_dists, key=move_dists.get)

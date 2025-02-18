@@ -13,7 +13,7 @@ from networkFolder.functionList import Map, WorldEstimatingNetwork, DigitClassif
 
 def run_sim(game: Game, robot: Robot, timeout):
     start_time = time.time()
-    for i in range(0, 200):
+    for i in range(0, 500):
         found_goal = game.tick()
         if i % 20 == 0:
             print(f"{game.getIteration()}: Robot at: {robot.getLoc()}, Score = {game.getScore()}")
@@ -52,7 +52,7 @@ def run_tests(num_tests, timeout, nav_func, render=False):
         map.getNewMap()
         # Get the current map from the Map Class
         data = map.map
-        print("\nNEW MAP DIGIT:", map.number)
+        print(f"\nITER. {i} MAP DIGIT: {map.number}")
         robot.resetRobot()
         navigator.resetNav()
 
@@ -80,11 +80,10 @@ def run_tests(num_tests, timeout, nav_func, render=False):
 
 
 if __name__ == "__main__":
-
-    num_tests = 10
+    num_tests = 5
     timeout = 15*60
-    nav_func = IPPNavigator # OneStepNavigator
-    render = False
+    nav_func = IPPNavigator #  OneStepNavigator # 
+    render = True
 
     avg_rew, avg_time = run_tests(num_tests=num_tests,
                                     timeout=timeout,
@@ -92,4 +91,4 @@ if __name__ == "__main__":
                                     render=render
                                     )
 
-    print(f"Tests complete! Average reward: {avg_rew}, Average time: {avg_time}")
+    print(f"\nTests complete! Average reward: {avg_rew}, Average time: {avg_time}")

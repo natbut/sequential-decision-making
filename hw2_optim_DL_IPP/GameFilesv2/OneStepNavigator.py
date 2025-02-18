@@ -76,13 +76,15 @@ class OneStepNavigator:
         if self.goal_selected is not None:
             return self.get_goal_action(robot, possible_moves, est_map)
         else:
+            # self.stored_locs.append(robot_loc)
             return self.get_exploratory_action(robot, possible_moves, est_map)
         
 
 
     def get_exploratory_action(self, robot: Robot, possible_moves: dict, est_map: Map):
         """
-        Get action that explores environment
+        Get action that explores environment using a one-step lookahead to move to the
+        highest-value unexplored neighboring cell in est_map.
         """
         # Get the value of the estimated map at the possible moves
         move_values = []
@@ -119,6 +121,8 @@ class OneStepNavigator:
         if direction is None:
             # If no valid moves, randomly select a move
             direction = list(possible_moves.keys())[randint(0, 3)]
+            while possible_moves[direction] in self.goal_locs.values():
+                direction = list(possible_moves.keys())[randint(0, 3)]
 
         return direction
 

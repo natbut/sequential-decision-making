@@ -1,3 +1,7 @@
-Greedy testing over 10 trials: Average reward: -150.3, Average time: 0.8260424852371215
+Greedy testing over 10 trials:
+Thresh 0.1 Average reward: -296.5, Average time: 0.7973982095718384
+Thresh 0.05 Tests complete! Average reward: -260.7, Average time: 1.5215814590454102
 
-IPP testing over 10 trials: 
+IPP testing over 10 trials:
+Thresh 0.1 Average reward: -189.2, Average time: 4.720399069786072
+Thresh 0.05 Average reward: -195.1, Average time: 6.14562292098999
